@@ -58,6 +58,9 @@ Thumbs.db
 *.pb
 *.ckpt
 *.safetensors
+**/models/*
+**/test_service.py
+
 
 # Docker
 .dockerignore
@@ -79,6 +82,14 @@ app/__pycache__/
 core/__pycache__/
 llm/__pycache__/
 ontology_dc8f06af066e4a7880a5938933236037/__pycache__/
+
+app/data/images/*
+app/data/downloads/*
+app/data/models/*
+
+app/core/test_image_to_3d_response.py
+app/core/test_pipeline.py
+response_sample.json
 
 # You may want to keep these directories but ignore their contents
 # Add .gitkeep files to empty directories you want to keep

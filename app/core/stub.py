@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Literal, Tuple
 
 import requests
 
-from core.remote import Remote
+from .remote import Remote
 
 # Type aliases for clarity
 Manifests = Dict[str, dict]
@@ -37,7 +37,7 @@ class Stub:
         self._connections: Connections = {}
 
         for app_id in app_ids:
-            base_url = app_id.strip('/')
+            base_url = app_id.strip("/")
 
             try:
                 # Fetch manifest
@@ -46,22 +46,28 @@ class Stub:
                 self._manifest[app_id] = manifest
 
                 # Fetch input schema
-                input_schema = requests.get(f"https://{base_url}/schema?type=input").json()
+                input_schema = requests.get(
+                    f"https://{base_url}/schema?type=input"
+                ).json()
                 logging.info(f"[{app_id}] Input schema loaded.")
 
                 # Fetch output schema
-                output_schema = requests.get(f"https://{base_url}/schema?type=output").json()
+                output_schema = requests.get(
+                    f"https://{base_url}/schema?type=output"
+                ).json()
                 logging.info(f"[{app_id}] Output schema loaded.")
                 self._schema[app_id] = (input_schema, output_schema)
 
                 # Establish Remote WebSocket connection
-                self._connections[app_id] = Remote(f"wss://{base_url}", f"{app_id}-proxy").connect()
+                self._connections[app_id] = Remote(
+                    f"wss://{base_url}", f"{app_id}-proxy"
+                ).connect()
                 logging.info(f"[{app_id}] Connection established.")
             except Exception as e:
                 logging.error(f"[{app_id}] Initialization failed: {e}")
 
     # ----------------------------------------------------------------------
-    def call(self, app_id: str, data: Any, uid: str = 'super-user') -> dict:
+    def call(self, app_id: str, data: Any, uid: str = "super-user") -> dict:
         """
         Sends a request to the specified app via its Remote connection.
 
@@ -103,7 +109,7 @@ class Stub:
         return self._manifest.get(app_id, {})
 
     # ----------------------------------------------------------------------
-    def schema(self, app_id: str, type: Literal['input', 'output']) -> dict:
+    def schema(self, app_id: str, type: Literal["input", "output"]) -> dict:
         """
         Retrieves the input or output schema for a specific application.
 
@@ -119,11 +125,11 @@ class Stub:
         """
         _input, _output = self._schema.get(app_id, (None, None))
 
-        if type == 'input':
+        if type == "input":
             if _input is None:
                 raise ValueError(f"Input schema not found for app ID: {app_id}")
             return _input
-        elif type == 'output':
+        elif type == "output":
             if _output is None:
                 raise ValueError(f"Output schema not found for app ID: {app_id}")
             return _output

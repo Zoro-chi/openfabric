@@ -31,26 +31,40 @@ class LocalLLM:
         self.device_map = device_map
 
         if torch_dtype is None:
-            # Use bfloat16 if available, otherwise fall back to float16
-            self.torch_dtype = (
-                torch.bfloat16
-                if torch.cuda.is_available()
-                and torch.cuda.get_device_capability()[0] >= 8
-                else torch.float16
-            )
+            # Set default dtype based on device
+            if device_map == "mps":
+                # Apple Silicon uses float16
+                self.torch_dtype = torch.float16
+            elif (
+                torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+            ):
+                # Modern NVIDIA GPUs use bfloat16
+                self.torch_dtype = torch.bfloat16
+            else:
+                # Default to float16 for other cases
+                self.torch_dtype = torch.float16
         else:
             self.torch_dtype = torch_dtype
 
         logger.info(f"Loading LLM from {model_path}")
+        logger.info(f"Using device: {device_map}, dtype: {self.torch_dtype}")
 
         try:
-            # Create the text generation pipeline
-            self.pipe = pipeline(
-                "text-generation",
-                model=model_path,
-                torch_dtype=self.torch_dtype,
-                device_map=device_map,
-            )
+            # Create the text generation pipeline with appropriate device settings
+            pipeline_kwargs = {
+                "model": model_path,
+                "torch_dtype": self.torch_dtype,
+            }
+
+            # Handle MPS device specifically
+            if device_map == "mps":
+                # For MPS, we need to load the model directly to the MPS device
+                pipeline_kwargs["device"] = "mps"
+            else:
+                # For CUDA and CPU, use device_map for automatic optimization
+                pipeline_kwargs["device_map"] = device_map
+
+            self.pipe = pipeline("text-generation", **pipeline_kwargs)
             logger.info("LLM loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
@@ -151,9 +165,11 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
     Returns:
         A LocalLLM instance
     """
-    # Default model
+    # If model path not provided, first check for MODEL_PATH, then MODEL_ID from environment
     if not model_path:
-        model_path = os.environ.get("MODEL_ID", "meta-llama/Llama-3.2-3B-Instruct")
+        model_path = os.environ.get("MODEL_PATH") or os.environ.get(
+            "MODEL_ID", "meta-llama/Llama-3.2-3B-Instruct"
+        )
 
     # Check if the provided path is a local directory
     if os.path.isdir(model_path):
@@ -161,11 +177,19 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
     else:
         logger.info(f"Using model ID from Hugging Face: {model_path}")
 
-    # Check if CUDA is available
+    # Check available device backends
     device_map = "auto"
     torch_dtype = None
 
-    if torch.cuda.is_available():
+    # Check for Apple Silicon (M1/M2/M3) MPS support
+    if torch.backends.mps.is_available():
+        logger.info(
+            "Apple Silicon MPS is available. Using MPS backend for accelerated inference."
+        )
+        device_map = "mps"
+        torch_dtype = torch.float16
+    # Otherwise check if CUDA is available
+    elif torch.cuda.is_available():
         logger.info(f"CUDA is available. Using {torch.cuda.get_device_name(0)}")
         if torch.cuda.get_device_capability()[0] >= 8:
             # For Ampere architecture (30XX, A100, etc.) use bfloat16
@@ -174,7 +198,9 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
             # For older architectures use float16
             torch_dtype = torch.float16
     else:
-        logger.warning("CUDA not available. Using CPU. This may be slow for inference.")
+        logger.warning(
+            "No GPU acceleration available. Using CPU. This may be slow for inference."
+        )
 
     return LocalLLM(
         model_path=model_path, device_map=device_map, torch_dtype=torch_dtype

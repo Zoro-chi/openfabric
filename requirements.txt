@@ -50,3 +50,4 @@ tqdm>=4.62.3
 
 # UI
 gradio>=3.40.0
+pygltflib

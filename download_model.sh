@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Create models directory in the project
-MODELS_DIR="$(pwd)/models"
+MODELS_DIR="$(pwd)/app/llm/models"
 mkdir -p "$MODELS_DIR"
 
 # Default model
