@@ -2,7 +2,7 @@ import os
 from typing import Dict, List, Optional, Union
 import logging
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, AutoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -50,22 +50,52 @@ class LocalLLM:
         logger.info(f"Using device: {device_map}, dtype: {self.torch_dtype}")
 
         try:
-            # Create the text generation pipeline with appropriate device settings
-            pipeline_kwargs = {
-                "model": model_path,
-                "torch_dtype": self.torch_dtype,
-            }
+            # Load model and tokenizer directly instead of using pipeline
+            # This gives us more control over the configuration
 
-            # Handle MPS device specifically
+            # First, load and fix the config
+            config = AutoConfig.from_pretrained(model_path)
+
+            # Fix the rope_scaling issue for Llama models
+            if hasattr(config, "rope_scaling") and isinstance(
+                config.rope_scaling, dict
+            ):
+                # Ensure the type key exists and is set to linear
+                config.rope_scaling["type"] = "linear"
+                logger.info("Fixed rope_scaling configuration with type=linear")
+            elif not hasattr(config, "rope_scaling"):
+                # If no rope_scaling exists, add a basic one
+                config.rope_scaling = {"type": "linear", "factor": 1.0}
+                logger.info("Added default rope_scaling configuration")
+
+            # Load the tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+            # Load the model with our fixed config
             if device_map == "mps":
-                # For MPS, we need to load the model directly to the MPS device
-                pipeline_kwargs["device"] = "mps"
+                # For Apple Silicon, load to device directly
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    config=config,
+                    torch_dtype=self.torch_dtype,
+                    device_map={"": "mps"},  # Map all modules to MPS device
+                )
             else:
-                # For CUDA and CPU, use device_map for automatic optimization
-                pipeline_kwargs["device_map"] = device_map
+                # For other devices, use the device_map parameter
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    config=config,
+                    torch_dtype=self.torch_dtype,
+                    device_map=device_map,
+                )
 
-            self.pipe = pipeline("text-generation", **pipeline_kwargs)
+            # Create the pipeline with our pre-loaded model and tokenizer
+            self.pipe = pipeline(
+                "text-generation", model=model, tokenizer=tokenizer, framework="pt"
+            )
+
             logger.info("LLM loaded successfully")
+
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
             raise

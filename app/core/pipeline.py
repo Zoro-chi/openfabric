@@ -5,6 +5,7 @@ import json
 import requests
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
+import importlib
 import importlib.util
 
 # Use relative imports for modules in the same package
@@ -125,19 +126,26 @@ class CreativePipeline:
             # If image_path is None but we have metadata, we need to download from blob store
             if image_path is None and image_metadata_path:
                 try:
-                    # Import the blob_viewer downloader
-                    sys.path.append(str(Path(__file__).parent.parent / "tools"))
-                    try:
-                        from app.tools.blob_viewer import download_resource
-                    except ImportError:
+                    # Import the blob viewer downloader directly
+                    tools_dir = str(Path(__file__).parent.parent / "tools")
+                    sys.path.append(tools_dir)
 
-                        tools_dir = str(Path(__file__).parent.parent / "tools")
+                    try:
+                        # Try direct import first
+                        from tools.blob_viewer import (
+                            download_resource,
+                            construct_resource_url,
+                        )
+                    except ImportError:
+                        # If that fails, use importlib with proper error handling
+                        blob_viewer_path = os.path.join(tools_dir, "blob_viewer.py")
                         spec = importlib.util.spec_from_file_location(
-                            "blob_viewer", os.path.join(tools_dir, "blob_viewer.py")
+                            "blob_viewer", blob_viewer_path
                         )
                         blob_viewer = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(blob_viewer)
                         download_resource = blob_viewer.download_resource
+                        construct_resource_url = blob_viewer.construct_resource_url
 
                     # Read metadata to get blob ID and other info
                     with open(image_metadata_path, "r") as f:
@@ -176,20 +184,8 @@ class CreativePipeline:
                         with open(image_metadata_path, "w") as f:
                             json.dump(metadata, f, indent=2)
 
-                        # Download the image using the blob viewer but with a fixed path
-                        import importlib.util
-
-                        tools_dir = str(Path(__file__).parent.parent / "tools")
-                        spec = importlib.util.spec_from_file_location(
-                            "blob_viewer", os.path.join(tools_dir, "blob_viewer.py")
-                        )
-                        blob_viewer = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(blob_viewer)
-
                         # Call the download function with our custom path
-                        url = blob_viewer.construct_resource_url(
-                            data_blob_id, execution_id
-                        )
+                        url = construct_resource_url(data_blob_id, execution_id)
                         response = requests.get(url)
 
                         if response.status_code == 200:

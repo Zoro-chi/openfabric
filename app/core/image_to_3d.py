@@ -245,20 +245,33 @@ class ImageTo3DGenerator:
                     f"Could not identify response format. Keys: {list(result.keys())}"
                 )
 
-            # Generate a unique ID for this model
+            # Generate a unique ID for this model and timestamp
             model_id = str(uuid.uuid4())
             timestamp = int(time.time())
 
+            # NEW: Extract the base filename from the source image to use for the model
+            source_image_filename = Path(image_path).name
+            base_name = source_image_filename.rsplit(".", 1)[0]  # Remove extension
+
+            # If base name doesn't already include timestamp, add it
+            if not any(c.isdigit() for c in base_name):
+                base_name = f"{base_name}_{timestamp}"
+
+            # Append "_3d" to clearly indicate this is a 3D model derived from the image
+            base_name = f"{base_name}_3d"
+
+            # Create filenames based on the image name pattern
+            model_filename = f"{base_name}.{model_format}"
+            metadata_filename = f"{base_name}.json"
+
             # Create paths for model and metadata
-            model_filename = f"{timestamp}_{model_id}.{model_format}"
-            metadata_filename = f"{timestamp}_{model_id}.json"
             model_path = self.output_dir / model_filename
             metadata_path = self.output_dir / metadata_filename
 
             # Create path for video preview if available
             video_path = None
             if has_video_preview and video_data:
-                video_filename = f"{timestamp}_{model_id}_preview.mp4"
+                video_filename = f"{base_name}_preview.mp4"
                 video_path = self.output_dir / video_filename
                 try:
                     # Extract video base64 data
@@ -279,13 +292,11 @@ class ImageTo3DGenerator:
                 model_file.write(base64.b64decode(model_base64))
 
             # Save metadata linking image to 3D model
-            src_image_filename = Path(image_path).name
-
             metadata = {
                 "id": model_id,
                 "timestamp": timestamp,
                 "source_image": image_path,
-                "source_image_filename": src_image_filename,
+                "source_image_filename": source_image_filename,
                 "file_path": str(model_path),
                 "format": model_format,
                 "type": "3d_model",
@@ -298,9 +309,11 @@ class ImageTo3DGenerator:
             }
 
             with open(metadata_path, "w") as meta_file:
-                json.dump(metadata, meta_file, indent=2)
+                json.dump(metadata, meta_file)
 
             logger.info(f"3D model saved to {model_path}")
+            logger.info(f"Metadata saved to {metadata_path}")
+
             return str(model_path), str(metadata_path)
 
         except Exception as e:
