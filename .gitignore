@@ -86,6 +86,8 @@ ontology_dc8f06af066e4a7880a5938933236037/__pycache__/
 app/data/images/*
 app/data/downloads/*
 app/data/models/*
+app/data/embeddings/*
+app/test/
 
 app/core/test_image_to_3d_response.py
 app/core/test_pipeline.py

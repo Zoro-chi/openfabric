@@ -61,10 +61,12 @@ def main():
     pipeline = None
     if CORE_MODULES_AVAILABLE:
         try:
-            # Configure app IDs - only use TEXT_TO_IMAGE for now
+            # Configure app IDs - use both TEXT_TO_IMAGE and IMAGE_TO_3D
             app_ids = []
             if TEXT_TO_IMAGE_APP_ID:
                 app_ids.append(TEXT_TO_IMAGE_APP_ID)
+            if IMAGE_TO_3D_APP_ID:
+                app_ids.append(IMAGE_TO_3D_APP_ID)
 
             logger.info(f"Using app IDs: {app_ids}")
             stub = Stub(app_ids=app_ids)

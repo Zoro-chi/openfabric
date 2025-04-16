@@ -224,10 +224,38 @@ class CreativePipeline:
             # 3. Generate 3D model from the image
             model_params = params.get("model", {}) if params else {}
             try:
+                logger.info(f"Starting 3D model generation from image: {image_path}")
+                # The generate method will now handle all the asynchronous processing internally
                 model_path, model_metadata_path = self.image_to_3d.generate(
                     image_path, model_params
                 )
-                logger.info(f"Generated 3D model at {model_path}")
+
+                # Verify the model was generated successfully
+                if not Path(model_path).exists():
+                    raise FileNotFoundError(
+                        f"Generated model file not found at {model_path}"
+                    )
+
+                logger.info(f"Successfully generated 3D model at {model_path}")
+                logger.info(f"Model metadata saved at {model_metadata_path}")
+
+                # Load metadata to include additional details in the response
+                try:
+                    with open(model_metadata_path, "r") as f:
+                        model_metadata = json.load(f)
+                    logger.info(
+                        f"3D model format: {model_metadata.get('format', 'unknown')}"
+                    )
+
+                    # Check for video preview
+                    if model_metadata.get("has_video_preview") and model_metadata.get(
+                        "video_path"
+                    ):
+                        logger.info(
+                            f"3D model includes video preview at {model_metadata.get('video_path')}"
+                        )
+                except Exception as metadata_err:
+                    logger.warning(f"Could not read model metadata: {metadata_err}")
 
                 # Successful full pipeline
                 return PipelineResult(
