@@ -72,7 +72,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Download the LLM model (optional)
+### 4. Download the LLM model (optional but **recommended**)
 
 To use the local LLM for prompt enhancement:
 
