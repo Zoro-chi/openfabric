@@ -19,6 +19,7 @@ AI Creative is an end-to-end pipeline for generating 3D models from text prompts
 - 8GB RAM (16GB+ recommended for larger models)
 - Modern CPU (GPU recommended for improved performance)
 - 1GB free disk space for the application and generated assets
+- 13GB free disk space for the LLM model (if downloaded)
 - Internet connection (for Openfabric API access)
 - Operating Systems: Windows 10/11, macOS, Linux
 
@@ -74,6 +75,7 @@ pip install -r requirements.txt
 
 ### 4. Download the LLM model (optional but **recommended**)
 
+Model size is approximately 13GB.
 To use the local LLM for prompt enhancement:
 
 ```bash
