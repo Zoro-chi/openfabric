@@ -9,14 +9,6 @@ DEFAULT_CONFIG = {
         "max_tokens": 512,
         "temperature": 0.7,
     },
-    "memory": {
-        "db_path": os.path.join("data", "memory.db"),
-        "vector_db_path": os.path.join("data", "vectordb"),
-    },
-    "api": {
-        "host": "0.0.0.0",
-        "port": 8000,
-    },
     "ui": {
         "host": "0.0.0.0",
         "port": 7860,
@@ -41,12 +33,6 @@ def get_config() -> Dict[str, Any]:
 
     if os.environ.get("LLM_MODEL_PATH"):
         config["llm"]["model_path"] = os.environ.get("LLM_MODEL_PATH")
-
-    if os.environ.get("MEMORY_DB_PATH"):
-        config["memory"]["db_path"] = os.environ.get("MEMORY_DB_PATH")
-
-    if os.environ.get("VECTOR_DB_PATH"):
-        config["memory"]["vector_db_path"] = os.environ.get("VECTOR_DB_PATH")
 
     # Add any other environment variable overrides as needed
 

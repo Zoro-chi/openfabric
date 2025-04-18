@@ -12,6 +12,7 @@ gevent-websocket
 python-socketio
 pyzmq
 socketio-client
+websockets>=12.0
 
 # AI/ML dependencies
 openfabric-pysdk==0.2.9
@@ -39,6 +40,7 @@ marshmallow-jsonschema
 deepdiff>=7.0.1
 pickleDB
 web3>=7.5.0
+requests>=2.28.0
 
 # Data processing
 numpy>=1.24.0

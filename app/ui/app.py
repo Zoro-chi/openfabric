@@ -268,7 +268,9 @@ def main():
 
                 try:
                     # Get the index from the selection event
-                    row_index = evt.index[0] if hasattr(evt, "index") else 0
+                    row_index = (
+                        evt.index[0] if hasattr(evt, "index") and evt.index else 0
+                    )
                     if row_index < 0 or row_index >= len(
                         view_model_by_index.model_paths
                     ):
@@ -283,7 +285,7 @@ def main():
                         logger.warning(f"Model file not found: {model_path}")
                         return None, None
 
-                except (IndexError, AttributeError) as e:
+                except (IndexError, AttributeError, TypeError) as e:
                     logger.error(f"Error accessing selected model: {e}")
                     return None, None
 
@@ -331,8 +333,7 @@ def main():
                         model_details = gr.JSON(label="Model Details")
 
                     refresh_models_btn = gr.Button("Refresh Models")
-                    # We'll keep this button for compatibility, but also add automatic selection on row click
-                    view_model_btn = gr.Button("View Selected Model")
+                    # Removed the "View Selected Model" button that was causing errors
 
                     # Make the dataframe selection trigger the model loading automatically
                     models_list.select(
@@ -346,12 +347,7 @@ def main():
                 outputs=[models_list],
             )
 
-            # Wire up the model viewer
-            view_model_btn.click(
-                fn=view_model_by_index,
-                inputs=[models_list],
-                outputs=[selected_model, model_details],
-            )
+            # Removed the view_model_btn.click implementation since we're removing the button
 
             # Initial gallery loads
             demo.load(update_image_gallery, outputs=[image_gallery])
