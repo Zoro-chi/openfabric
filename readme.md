@@ -52,7 +52,6 @@ You can try out a hosted version of AI Creative at [AI Creative Studio](https://
 
 ```bash
 git clone https://github.com/Zoro-chi/openfabric.git
-cd ai-creative
 ```
 
 ### 2. Create a Python virtual environment
