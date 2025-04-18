@@ -86,99 +86,69 @@ async def startup_event():
     global llm
     logger.info("Starting LLM service initialization...")
 
-    # Check if model is available in local models directory
+    # Determine model path from environment or local directory
     local_models_dir = Path(__file__).parent / "models"
-    model_id = os.environ.get("MODEL_ID")
+    model_id = os.environ.get("MODEL_ID", "meta-llama/Llama-3.2-3B-Instruct")
+    model_path = os.environ.get("MODEL_PATH")
 
-    # Check if model_id is provided and valid
-    if not model_id:
-        logger.warning(
-            "No MODEL_ID specified in environment variables. Using default model."
-        )
-        model_id = "meta-llama/Llama-3.2-3B-Instruct"
-
-    # Build path to local model directory
+    # Check for locally downloaded model first
     local_model_path = local_models_dir / model_id
-
-    # First check if model exists locally in app/llm/models/
     if local_model_path.exists():
         logger.info(f"Found local model at: {local_model_path}")
         model_path = str(local_model_path)
+    elif model_path and os.path.isdir(model_path):
+        logger.info(f"Using local model from MODEL_PATH: {model_path}")
     else:
-        # Check for MODEL_PATH environment variable
-        model_path = os.environ.get("MODEL_PATH")
-        if model_path and os.path.isdir(model_path):
-            logger.info(f"Using local model from MODEL_PATH: {model_path}")
-        else:
-            # Fall back to MODEL_ID for downloading from HuggingFace
-            logger.info(
-                f"Local model not found at {local_model_path}. Using model ID from Hugging Face: {model_id}"
+        # Fall back to downloading from HuggingFace
+        logger.info(f"Using model ID from Hugging Face: {model_id}")
+        model_path = model_id
+
+        # Warning for gated models without token
+        if "meta-llama" in model_id and not os.environ.get("HF_TOKEN"):
+            logger.warning(
+                f"Using Meta-Llama model without HF_TOKEN. Authentication will likely fail."
             )
-            model_path = model_id
 
-            # Check if we have a token for potentially gated models
-            if "meta-llama" in model_path and not os.environ.get("HF_TOKEN"):
-                logger.warning(
-                    f"Using Meta-Llama model ({model_id}) but no HF_TOKEN found. "
-                    "This may fail if the model requires authentication."
-                )
+    # List of fallback models in order of preference
+    fallback_models = [
+        "mistralai/Mistral-7B-Instruct-v0.2",
+        "microsoft/Phi-3-mini-4k-instruct",
+        "google/gemma-2b-it",
+    ]
 
+    # Try loading the primary model first, then fallbacks
+    start_time = time.time()
     try:
-        start_time = time.time()
         llm = get_llm_instance(model_path)
         init_time = time.time() - start_time
-
         logger.info(
             f"LLM initialized successfully with model: {model_path} in {init_time:.2f} seconds"
         )
 
-        memory = psutil.virtual_memory()
-        logger.info(
-            f"System memory: {memory.percent}% used ({memory.used / (1024**3):.1f}GB / {memory.total / (1024**3):.1f}GB)"
-        )
+        # Log memory usage if psutil is available
+        try:
+            memory = psutil.virtual_memory()
+            logger.info(
+                f"System memory: {memory.percent}% used ({memory.used / (1024**3):.1f}GB / {memory.total / (1024**3):.1f}GB)"
+            )
+        except (ImportError, NameError):
+            pass
 
     except Exception as e:
-        logger.error(f"Failed to initialize LLM: {str(e)}")
+        logger.error(f"Failed to initialize primary model: {str(e)}")
 
-        # Try with fallback models if the primary model fails
-        if "meta-llama" in model_path:
+        # Try each fallback model in sequence
+        for i, fallback in enumerate(fallback_models):
             try:
-                # Mistral-7B-Instruct-v0.2 is a high-quality open source model that's comparable to Llama-3
-                fallback_model = "mistralai/Mistral-7B-Instruct-v0.2"
-                logger.info(f"Attempting to load fallback model: {fallback_model}")
-                llm = get_llm_instance(fallback_model)
-                logger.info("Successfully loaded Mistral-7B fallback model")
+                logger.info(f"Attempting to load fallback model #{i+1}: {fallback}")
+                llm = get_llm_instance(fallback)
+                logger.info(f"Successfully loaded fallback model: {fallback}")
+                break
             except Exception as fallback_error:
-                logger.error(f"Mistral fallback model failed: {str(fallback_error)}")
+                logger.error(f"Fallback model {fallback} failed: {str(fallback_error)}")
 
-                try:
-                    # Phi-3-mini-4k-instruct is smaller but still high quality
-                    second_fallback = "microsoft/Phi-3-mini-4k-instruct"
-                    logger.info(
-                        f"Attempting to load second fallback model: {second_fallback}"
-                    )
-                    llm = get_llm_instance(second_fallback)
-                    logger.info("Successfully loaded Phi-3 fallback model")
-                except Exception as second_fallback_error:
-                    logger.error(
-                        f"Phi-3 fallback model also failed: {str(second_fallback_error)}"
-                    )
-
-                    try:
-                        # Gemma-2B is very small but decent quality
-                        third_fallback = "google/gemma-2b-it"
-                        logger.info(
-                            f"Attempting to load third fallback model: {third_fallback}"
-                        )
-                        llm = get_llm_instance(third_fallback)
-                        logger.info("Successfully loaded Gemma fallback model")
-                    except Exception as third_fallback_error:
-                        logger.error(
-                            f"Gemma fallback model also failed: {str(third_fallback_error)}"
-                        )
-                        raise e
-        else:
-            raise
+        if not llm:
+            logger.error("All models failed to load. Service will respond with errors.")
 
 
 @app.post("/generate", response_model=LLMResponse)

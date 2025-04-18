@@ -6,14 +6,16 @@ import json
 from pathlib import Path
 import time
 import uuid
-import random
 from dotenv import load_dotenv
 
+from . import openfabric_logger
 from .stub import Stub
 
+# Load environment variables once at module level
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+# Initialize module-specific logger as a child of the openfabric logger
+logger = openfabric_logger.getChild("text_to_image")
 
 
 class TextToImageGenerator:
@@ -31,30 +33,39 @@ class TextToImageGenerator:
         """
         self.stub = stub
         self.app_id = app_id or os.environ.get("TEXT_TO_IMAGE_APP_ID")
+        if not self.app_id:
+            logger.error("No TEXT_TO_IMAGE_APP_ID provided or found in environment")
+            raise ValueError("Missing TEXT_TO_IMAGE_APP_ID")
 
-        # Use default output directory if IMAGE_OUTPUT_DIR is not set
+        # Set up output directory
         image_output_dir = os.environ.get("IMAGE_OUTPUT_DIR")
-        if image_output_dir is None:
-            # Default to app/data/images
-            self.output_dir = Path(__file__).parent.parent / "data" / "images"
+        self.output_dir = (
+            Path(image_output_dir)
+            if image_output_dir
+            else Path(__file__).parent.parent / "data" / "images"
+        )
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        if not image_output_dir:
             logger.warning(
                 f"IMAGE_OUTPUT_DIR not set, using default: {self.output_dir}"
             )
-        else:
-            self.output_dir = Path(image_output_dir)
 
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Cache schemas without raising exceptions to allow fallback mode
+        self._load_schemas()
 
-        # Cache the schema and manifest - don't raise exceptions to allow fallback mode
+    def _load_schemas(self):
+        """Load API schemas without blocking initialization on failure"""
         try:
             self.input_schema = self.stub.schema(self.app_id, "input")
             self.output_schema = self.stub.schema(self.app_id, "output")
             self.manifest = self.stub.manifest(self.app_id)
             logger.info(
-                f"Successfully loaded schema and manifest for text-to-image app: {self.app_id}"
+                f"Schema and manifest loaded for text-to-image app: {self.app_id}"
             )
         except Exception as e:
-            logger.warning(f"Failed to load schema/manifest for text-to-image app: {e}")
+            logger.warning(f"Failed to load API schemas: {e}")
+            self.input_schema = self.output_schema = self.manifest = None
 
     def generate(
         self,
@@ -76,62 +87,35 @@ class TextToImageGenerator:
         # Use original prompt for naming if provided, otherwise use expanded prompt
         file_naming_prompt = original_prompt if original_prompt else prompt
 
-        # Prepare the request based on the input schema
+        # Prepare the request
         request_data = self._prepare_request(prompt, params)
-
-        # Log the request
         logger.info(f"Sending text-to-image request with prompt: {prompt[:100]}...")
 
         # Send the request to Openfabric
-        result = None
         try:
             start_time = time.time()
             result = self.stub.call(self.app_id, request_data)
             generation_time = time.time() - start_time
             logger.info(f"Text-to-image generation completed in {generation_time:.2f}s")
+
+            # Process and save the result
+            return self._process_result(result, prompt, file_naming_prompt)
         except Exception as e:
             logger.error(f"Failed to generate image: {e}")
-            # Generate a mock response to continue testing
-
-            # result = self._generate_mock_response(prompt, request_data)
-            # logger.warning("Using mock image response due to service error")
-
-        # Process and save the result
-        return self._process_result(result, prompt, file_naming_prompt)
-
-    def _generate_mock_response(
-        self, prompt: str, request_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Generate a mock image response when the service is unavailable.
-
-        Args:
-            prompt: The text prompt
-            request_data: The original request data
-
-        Returns:
-            A mock response with a simple image
-        """
-        # Create a 1x1 transparent PNG as mock image
-        mock_image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-
-        return {
-            "image": mock_image,
-            "parameters": {
-                "prompt": prompt,
-                "width": request_data.get("width", 512),
-                "height": request_data.get("height", 512),
-                "steps": request_data.get("num_inference_steps", 30),
-                "guidance_scale": request_data.get("guidance_scale", 7.5),
-                "seed": request_data.get("seed", random.randint(1000, 9999)),
-            },
-        }
+            raise
 
     def _prepare_request(
         self, prompt: str, params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Prepare the request payload based on the app's input schema.
+
+        Args:
+            prompt: Text prompt for image generation
+            params: Additional parameters to override defaults
+
+        Returns:
+            Dict containing the properly formatted request payload
         """
         # Default parameters
         default_params = {
@@ -146,10 +130,8 @@ class TextToImageGenerator:
         # Override defaults with provided params
         request_params = {**default_params, **(params or {})}
 
-        # Create request based on schema
-        request = {"prompt": prompt, **request_params}
-
-        return request
+        # Create request
+        return {"prompt": prompt, **request_params}
 
     def _process_result(
         self, result: Dict[str, Any], prompt: str, file_naming_prompt: str
@@ -159,19 +141,18 @@ class TextToImageGenerator:
 
         Args:
             result: The API response
-            prompt: The original prompt
+            prompt: The prompt used for generation
             file_naming_prompt: The prompt used for naming files
 
         Returns:
-            Tuple of (image_path, metadata_path)
+            Tuple of (image_path, metadata_path) - image_path may be None if needs download
         """
-        # Extract image data or blob ID
         try:
-            # Generate a unique ID for this image
+            # Generate a unique ID and timestamp
             image_id = str(uuid.uuid4())
             timestamp = int(time.time())
 
-            # Create a more descriptive base filename from the prompt
+            # Create a descriptive filename from the prompt
             if file_naming_prompt:
                 # Use first 15 chars of prompt, replacing spaces with underscores
                 base_name = (
@@ -182,18 +163,17 @@ class TextToImageGenerator:
             else:
                 base_name = f"image_{timestamp}"
 
-            # Create paths for metadata
+            # Create metadata filename
             metadata_filename = f"{base_name}_{timestamp}.json"
             metadata_path = self.output_dir / metadata_filename
 
-            # Handle real Openfabric response format (which has 'result' field)
+            # Handle result format with blob ID (common case)
             if "result" in result:
-                # Log the result ID for reference
                 blob_id = result.get("result")
                 logger.info(f"Image generation result ID: {blob_id}")
 
                 # Create metadata for the image that includes the blob ID
-                # We won't create actual image file path yet since it will be downloaded
+                # Without creating an actual image file since it needs to be downloaded
                 metadata = {
                     "id": image_id,
                     "timestamp": timestamp,
@@ -209,17 +189,17 @@ class TextToImageGenerator:
                     json.dump(metadata, meta_file, indent=2)
 
                 logger.info(f"Image metadata saved with result ID: {blob_id}")
-                logger.info(f"Use blob_viewer.py to download the actual image")
+                logger.info("Use blob_viewer.py to download the actual image")
 
-                # Return the metadata path but no image path since it needs to be downloaded
+                # Return only metadata path since image needs separate download
                 return None, str(metadata_path)
 
-            # If we have direct image data (which would be rare in real use)
+            # Handle direct image data format (rare case)
             elif "image" in result:
-                # This is the fallback case if we somehow receive direct image data
                 image_filename = f"{base_name}_{timestamp}.png"
                 image_path = self.output_dir / image_filename
 
+                # Process image data
                 image_data = result.get("image")
                 if isinstance(image_data, str) and image_data.startswith("data:image"):
                     # Extract base64 data after the comma
@@ -246,12 +226,12 @@ class TextToImageGenerator:
                 with open(metadata_path, "w") as meta_file:
                     json.dump(metadata, meta_file, indent=2)
 
-                logger.info(f"Direct image data saved to {image_path}")
+                logger.info(f"Image saved to {image_path}")
                 return str(image_path), str(metadata_path)
 
             else:
                 raise KeyError(
-                    f"Unexpected response format. Response keys: {list(result.keys())}"
+                    f"Unexpected response format. Keys: {list(result.keys())}"
                 )
 
         except Exception as e:

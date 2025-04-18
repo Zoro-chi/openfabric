@@ -34,129 +34,124 @@ class LocalLLM:
         self.model_path = model_path
         self.device_map = device_map
 
-        # Authenticate with HuggingFace if token is provided and the model is not local
-        if not os.path.isdir(model_path) and token:
-            logger.info("Authenticating with HuggingFace using provided token")
-            login(token=token, write_permission=False)
-        elif not os.path.isdir(model_path) and os.environ.get("HF_TOKEN"):
-            logger.info(
-                "Authenticating with HuggingFace using HF_TOKEN environment variable"
-            )
-            login(token=os.environ.get("HF_TOKEN"), write_permission=False)
+        # Handle HuggingFace authentication for remote models
+        if not os.path.isdir(model_path):
+            auth_token = token or os.environ.get("HF_TOKEN")
+            if auth_token:
+                logger.info("Authenticating with HuggingFace")
+                login(token=auth_token, write_permission=False)
 
+        # Set appropriate dtype if not provided
         if torch_dtype is None:
-            # Set default dtype based on device
             if device_map == "mps":
-                # Apple Silicon uses float16
                 self.torch_dtype = torch.float16
             elif (
                 torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
             ):
-                # Modern NVIDIA GPUs use bfloat16
                 self.torch_dtype = torch.bfloat16
             else:
-                # Default to float16 for other cases
                 self.torch_dtype = torch.float16
         else:
             self.torch_dtype = torch_dtype
 
-        logger.info(f"Loading LLM from {model_path}")
-        logger.info(f"Using device: {device_map}, dtype: {self.torch_dtype}")
+        logger.info(
+            f"Loading LLM from {model_path} with device: {device_map}, dtype: {self.torch_dtype}"
+        )
 
+        # Load model with appropriate error handling
         try:
-            # Load model and tokenizer directly instead of using pipeline
-            # This gives us more control over the configuration
-
-            # First, load and fix the config
+            # Load and prepare configuration
             config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
 
-            # Fix the rope_scaling issue for Llama models
-            if hasattr(config, "rope_scaling") and isinstance(
+            # Fix common rope_scaling issues with Llama models
+            if not hasattr(config, "rope_scaling") or not isinstance(
                 config.rope_scaling, dict
             ):
-                # Ensure the type key exists and is set to linear
-                config.rope_scaling["type"] = "linear"
-                logger.info("Fixed rope_scaling configuration with type=linear")
-            elif not hasattr(config, "rope_scaling"):
-                # If no rope_scaling exists, add a basic one
                 config.rope_scaling = {"type": "linear", "factor": 1.0}
                 logger.info("Added default rope_scaling configuration")
+            elif (
+                isinstance(config.rope_scaling, dict)
+                and "type" not in config.rope_scaling
+            ):
+                config.rope_scaling["type"] = "linear"
+                logger.info("Fixed rope_scaling configuration with type=linear")
 
-            # Load the tokenizer with error handling
-            try:
-                logger.info(f"Loading tokenizer from {model_path}")
-                tokenizer = AutoTokenizer.from_pretrained(
-                    model_path, trust_remote_code=True
-                )
-                if tokenizer.pad_token is None and tokenizer.eos_token is not None:
-                    tokenizer.pad_token = tokenizer.eos_token
-                    logger.info("Set pad_token to eos_token")
-            except Exception as tokenizer_error:
-                logger.error(f"Failed to load tokenizer: {str(tokenizer_error)}")
+            # Load tokenizer with fallback options
+            tokenizer = self._load_tokenizer(model_path)
 
-                # If there's a tokenizer_config.json file in the model directory but no tokenizer files,
-                # try loading from a related model
-                if os.path.isdir(model_path):
-                    tokenizer_config_path = Path(model_path) / "tokenizer_config.json"
-                    if tokenizer_config_path.exists():
-                        fallback_tokenizer_model = "meta-llama/Llama-2-7b-chat-hf"
-                        logger.info(
-                            f"Attempting to load tokenizer from fallback model: {fallback_tokenizer_model}"
-                        )
-                        try:
-                            tokenizer = AutoTokenizer.from_pretrained(
-                                fallback_tokenizer_model, trust_remote_code=True
-                            )
-                            logger.info(f"Successfully loaded fallback tokenizer")
-                        except Exception as fallback_error:
-                            logger.error(
-                                f"Failed to load fallback tokenizer: {str(fallback_error)}"
-                            )
-                            raise
-                    else:
-                        raise
-                else:
-                    # Check if this is an authentication issue
-                    if "401 Client Error" in str(
-                        tokenizer_error
-                    ) or "403 Client Error" in str(tokenizer_error):
-                        raise ValueError(
-                            f"Authentication error: You need a valid HuggingFace token to access {model_path}. "
-                            f"Set the HF_TOKEN environment variable."
-                        )
-                    raise
+            # Load model with appropriate device mapping
+            model = self._load_model(model_path, config)
 
-            # Load the model with our fixed config
-            logger.info(f"Loading model with device_map={device_map}")
-            if device_map == "mps":
-                # For Apple Silicon, load to device directly
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    config=config,
-                    torch_dtype=self.torch_dtype,
-                    device_map={"": "mps"},  # Map all modules to MPS device
-                    trust_remote_code=True,
-                )
-            else:
-                # For other devices, use the device_map parameter
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    config=config,
-                    torch_dtype=self.torch_dtype,
-                    device_map=device_map,
-                    trust_remote_code=True,
-                )
-
-            # Create the pipeline with our pre-loaded model and tokenizer
+            # Create the pipeline
             self.pipe = pipeline(
                 "text-generation", model=model, tokenizer=tokenizer, framework="pt"
             )
-
             logger.info("LLM loaded successfully")
 
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
             raise
+
+    def _load_tokenizer(self, model_path: str):
+        """Helper method to load tokenizer with fallbacks"""
+        try:
+            logger.info(f"Loading tokenizer from {model_path}")
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path, trust_remote_code=True
+            )
+
+            # Set pad token if needed
+            if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+                logger.info("Set pad_token to eos_token")
+            return tokenizer
+
+        except Exception as e:
+            logger.error(f"Failed to load tokenizer: {str(e)}")
+
+            # Handle local model with tokenizer config but no tokenizer files
+            if os.path.isdir(model_path):
+                tokenizer_config_path = Path(model_path) / "tokenizer_config.json"
+                if tokenizer_config_path.exists():
+                    logger.info(
+                        "Found tokenizer config but loading failed, trying fallback tokenizer"
+                    )
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        "meta-llama/Llama-2-7b-chat-hf", trust_remote_code=True
+                    )
+                    logger.info("Successfully loaded fallback tokenizer")
+                    return tokenizer
+
+            # Check for auth errors with remote models
+            if "401 Client Error" in str(e) or "403 Client Error" in str(e):
+                raise ValueError(
+                    f"Authentication error: You need a valid HuggingFace token to access {model_path}. "
+                    f"Set the HF_TOKEN environment variable."
+                )
+            raise
+
+    def _load_model(self, model_path: str, config):
+        """Helper method to load model with appropriate device settings"""
+        logger.info(f"Loading model with device_map={self.device_map}")
+
+        # Special handling for Apple Silicon
+        if self.device_map == "mps":
+            return AutoModelForCausalLM.from_pretrained(
+                model_path,
+                config=config,
+                torch_dtype=self.torch_dtype,
+                device_map={"": "mps"},  # Map all modules to MPS
+                trust_remote_code=True,
+            )
+        else:
+            # Standard loading for other devices
+            return AutoModelForCausalLM.from_pretrained(
+                model_path,
+                config=config,
+                torch_dtype=self.torch_dtype,
+                device_map=self.device_map,
+                trust_remote_code=True,
+            )
 
     def generate(
         self,
@@ -265,47 +260,42 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
     if is_local_model:
         logger.info(f"Using local model directory: {model_path}")
     else:
-        logger.info(
-            f"Model not found locally. Using model ID from Hugging Face: {model_path}"
-        )
+        logger.info(f"Using model ID from Hugging Face: {model_path}")
 
-        # If it's a HuggingFace model ID, we may need to check for token
-        if "/" in model_path and not os.environ.get("HF_TOKEN"):
-            # Check if it could be a gated model (meta-llama models are gated)
-            if "meta-llama" in model_path:
-                logger.warning(
-                    f"Using potentially gated model '{model_path}' without HF_TOKEN. "
-                    "This may fail if the model requires authentication."
-                )
+        # For gated models, verify token availability
+        if (
+            "/" in model_path
+            and "meta-llama" in model_path
+            and not os.environ.get("HF_TOKEN")
+        ):
+            logger.warning(
+                f"Using gated model '{model_path}' without HF_TOKEN may fail"
+            )
 
-    # Check available device backends
+    # Determine optimal device settings
     device_map = "auto"
     torch_dtype = None
 
-    # Check for Apple Silicon (M1/M2/M3) MPS support
+    # Check available hardware and set appropriate device
     if torch.backends.mps.is_available():
-        logger.info(
-            "Apple Silicon MPS is available. Using MPS backend for accelerated inference."
-        )
+        logger.info("Apple Silicon MPS available. Using MPS acceleration.")
         device_map = "mps"
         torch_dtype = torch.float16
-    # Otherwise check if CUDA is available
     elif torch.cuda.is_available():
-        logger.info(f"CUDA is available. Using {torch.cuda.get_device_name(0)}")
-        if torch.cuda.get_device_capability()[0] >= 8:
-            # For Ampere architecture (30XX, A100, etc.) use bfloat16
-            torch_dtype = torch.bfloat16
-        else:
-            # For older architectures use float16
-            torch_dtype = torch.float16
-    else:
-        logger.warning(
-            "No GPU acceleration available. Using CPU. This may be slow for inference."
+        logger.info(f"CUDA available on {torch.cuda.get_device_name(0)}")
+        # Use bfloat16 for newer NVIDIA GPUs (Ampere+)
+        torch_dtype = (
+            torch.bfloat16
+            if torch.cuda.get_device_capability()[0] >= 8
+            else torch.float16
         )
+    else:
+        logger.warning("No GPU acceleration available. Using CPU (slow).")
 
-    # Get HuggingFace token from environment if available
+    # Get HuggingFace token
     hf_token = os.environ.get("HF_TOKEN")
 
+    # Standard loading attempt
     try:
         return LocalLLM(
             model_path=model_path,
@@ -314,33 +304,43 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
             token=hf_token,
         )
     except Exception as e:
-        # If failure is tokenizer related and it's a local model, try direct loading workarounds
-        if "tokenizer" in str(e).lower() and is_local_model:
-            logger.warning(f"Failed to load model with error: {str(e)}")
-            logger.info("Trying workaround for local model with tokenizer issues...")
+        error_str = str(e).lower()
 
-            # Try a simpler local model loading approach
+        # Handle tokenizer errors for local models
+        if "tokenizer" in error_str and is_local_model:
+            logger.warning(f"Tokenizer error with local model: {str(e)}")
+
             try:
+                # Try specific Llama tokenizer for local models
                 from transformers import LlamaTokenizer, LlamaForCausalLM
 
-                # Try to find parent directories that might contain tokenizer files
-                model_dir = Path(model_path)
-
-                # Try to load with LlamaTokenizer directly
+                tokenizer = None
+                # First attempt: direct loading with LlamaTokenizer
                 try:
-                    logger.info(
-                        f"Attempting to load tokenizer with LlamaTokenizer directly..."
-                    )
+                    logger.info("Attempting to load with LlamaTokenizer...")
                     tokenizer = LlamaTokenizer.from_pretrained(
-                        model_dir, trust_remote_code=True
+                        model_path, trust_remote_code=True
                     )
                     model = LlamaForCausalLM.from_pretrained(
-                        model_dir,
+                        model_path,
+                        torch_dtype=torch_dtype,
+                        device_map=device_map,
+                        trust_remote_code=True,
+                    )
+                except Exception:
+                    # Second attempt: load tokenizer from HF and model locally
+                    logger.info("Trying with HuggingFace tokenizer...")
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        "meta-llama/Llama-2-7b-chat-hf", trust_remote_code=True
+                    )
+                    model = AutoModelForCausalLM.from_pretrained(
+                        model_path,
                         torch_dtype=torch_dtype,
                         device_map=device_map,
                         trust_remote_code=True,
                     )
 
+                if tokenizer:
                     pipe = pipeline(
                         "text-generation",
                         model=model,
@@ -349,85 +349,36 @@ def get_llm_instance(model_path: Optional[str] = None) -> LocalLLM:
                     )
                     llm = LocalLLM(model_path=model_path, device_map=device_map)
                     llm.pipe = pipe
-                    logger.info(
-                        "Successfully loaded model with LlamaTokenizer/LlamaForCausalLM directly"
-                    )
+                    logger.info("Successfully loaded model with tokenizer workaround")
                     return llm
 
-                except Exception as direct_error:
-                    logger.error(f"Direct loading failed: {str(direct_error)}")
-
-                    # Try loading tokenizer from HuggingFace even for local model
-                    try:
-                        logger.info("Attempting to load tokenizer from HuggingFace...")
-                        base_model_id = "meta-llama/Llama-2-7b-chat-hf"  # Common base model that might work
-                        tokenizer = AutoTokenizer.from_pretrained(
-                            base_model_id, trust_remote_code=True
-                        )
-                        model = AutoModelForCausalLM.from_pretrained(
-                            model_path,
-                            torch_dtype=torch_dtype,
-                            device_map=device_map,
-                            trust_remote_code=True,
-                        )
-
-                        pipe = pipeline(
-                            "text-generation",
-                            model=model,
-                            tokenizer=tokenizer,
-                            framework="pt",
-                        )
-                        llm = LocalLLM(model_path=model_path, device_map=device_map)
-                        llm.pipe = pipe
-                        logger.info(
-                            "Successfully loaded model with HF tokenizer and local model"
-                        )
-                        return llm
-                    except Exception as hf_tokenizer_error:
-                        logger.error(
-                            f"HF tokenizer loading failed: {str(hf_tokenizer_error)}"
-                        )
-                        raise e  # Re-raise original error if all workarounds fail
             except Exception as workaround_error:
-                logger.error(f"Workaround failed: {str(workaround_error)}")
-                raise e  # Re-raise original error
-        elif "tokenizer" in str(e).lower() and "meta-llama" in model_path:
-            # This could be an authentication issue for remote meta-llama models
-            if "401 Client Error" in str(e) or "403 Client Error" in str(e):
-                logger.warning(
-                    "Authentication error loading meta-llama model. Trying fallback open models."
+                logger.error(
+                    f"All local model workarounds failed: {str(workaround_error)}"
                 )
 
-                # Try Mistral-7B-Instruct-v0.2 as a high-quality open source fallback first
+        # Handle authentication errors for remote models
+        elif (
+            "401" in error_str or "403" in error_str or "authentication" in error_str
+        ) and "meta-llama" in model_path:
+            logger.warning("Authentication error. Trying fallback open models...")
+
+            # Ordered list of fallback models
+            fallback_models = [
+                "mistralai/Mistral-7B-Instruct-v0.2",
+                "microsoft/Phi-3-mini-4k-instruct",
+                "google/gemma-2b-it",
+            ]
+
+            # Try each fallback model
+            for fallback in fallback_models:
                 try:
-                    fallback_model = "mistralai/Mistral-7B-Instruct-v0.2"
-                    logger.info(f"Attempting to load fallback model: {fallback_model}")
-                    return get_llm_instance(fallback_model)
-                except Exception as mistral_error:
-                    logger.error(f"Mistral fallback model failed: {str(mistral_error)}")
+                    logger.info(f"Attempting to load fallback model: {fallback}")
+                    return get_llm_instance(fallback)
+                except Exception as fallback_error:
+                    logger.error(
+                        f"Fallback model {fallback} failed: {str(fallback_error)}"
+                    )
 
-                    # Try Phi-3-mini as secondary fallback
-                    try:
-                        phi3_model = "microsoft/Phi-3-mini-4k-instruct"
-                        logger.info(
-                            f"Attempting to load Phi-3 fallback model: {phi3_model}"
-                        )
-                        return get_llm_instance(phi3_model)
-                    except Exception as phi3_error:
-                        logger.error(f"Phi-3 fallback model failed: {str(phi3_error)}")
-
-                        # Try Gemma as final fallback
-                        try:
-                            gemma_model = "google/gemma-2b-it"
-                            logger.info(
-                                f"Attempting to load Gemma fallback model: {gemma_model}"
-                            )
-                            return get_llm_instance(gemma_model)
-                        except Exception as gemma_error:
-                            logger.error(f"All fallback models failed")
-                            raise e  # Re-raise original error if all fallbacks fail
-            else:
-                raise
-        else:
-            # For other errors, just raise the original exception
-            raise
+        # Re-raise the original exception if all fallbacks fail
+        raise

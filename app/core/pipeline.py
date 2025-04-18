@@ -13,10 +13,6 @@ from .text_to_image import TextToImageGenerator
 from .image_to_3d import ImageTo3DGenerator
 from .stub import Stub
 
-# Remove the sys.path.append since we'll use relative imports instead
-sys.path.append(
-    str(Path(__file__).parent.parent)
-)  # Add parent directory to path for imports
 from llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -75,15 +71,67 @@ class CreativePipeline:
         Args:
             stub: Stub instance for communicating with Openfabric apps
         """
+        from . import openfabric_logger
+
+        # Use the openfabric_logger for pipeline initialization
+        of_logger = openfabric_logger.getChild("pipeline")
+        of_logger.info("Initializing Creative Pipeline with Openfabric services")
+
         self.stub = stub
+
+        # Log available app connections
+        if hasattr(stub, "_connections"):
+            app_ids = list(stub._connections.keys())
+            of_logger.info(f"Openfabric connections available: {app_ids}")
+
+            for app_id in app_ids:
+                try:
+                    # Get manifest information for this app
+                    manifest = stub.manifest(app_id)
+                    app_name = manifest.get("name", "Unknown")
+                    app_version = manifest.get("version", "Unknown")
+                    app_description = manifest.get(
+                        "description", "No description available"
+                    )
+
+                    of_logger.info(f"Connected to Openfabric app: {app_id}")
+                    of_logger.info(f"  App name: {app_name}")
+                    of_logger.info(f"  App version: {app_version}")
+                    of_logger.info(f"  Description: {app_description}")
+
+                    # Try to log some schema information
+                    try:
+                        input_schema = stub.schema(app_id, "input")
+                        output_schema = stub.schema(app_id, "output")
+                        of_logger.info(f"  Schema loaded successfully for app {app_id}")
+                    except Exception as schema_e:
+                        of_logger.warning(
+                            f"  Could not load schema for app {app_id}: {schema_e}"
+                        )
+                except Exception as e:
+                    of_logger.error(f"Error getting manifest for app {app_id}: {e}")
+        else:
+            of_logger.warning("No Openfabric connections available in stub")
 
         # Initialize LLM client
         llm_service_url = os.environ.get("LLM_SERVICE_URL")
         self.llm_client = LLMClient(base_url=llm_service_url)
+        of_logger.info(f"LLM client initialized with service URL: {llm_service_url}")
 
         # Initialize generators
+        of_logger.info("Initializing Text-to-Image generator")
         self.text_to_image = TextToImageGenerator(stub)
+        if hasattr(self.text_to_image, "app_id"):
+            of_logger.info(
+                f"Text-to-Image generator initialized with app ID: {self.text_to_image.app_id}"
+            )
+
+        of_logger.info("Initializing Image-to-3D generator")
         self.image_to_3d = ImageTo3DGenerator(stub)
+        if hasattr(self.image_to_3d, "app_id"):
+            of_logger.info(
+                f"Image-to-3D generator initialized with app ID: {self.image_to_3d.app_id}"
+            )
 
         # Ensure app/data directories exist
         data_dir = Path(__file__).parent.parent / "data"
@@ -92,6 +140,7 @@ class CreativePipeline:
         (data_dir / "models").mkdir(exist_ok=True)
         (data_dir / "downloads").mkdir(exist_ok=True)
 
+        of_logger.info("Creative pipeline initialized successfully")
         logger.info("Creative pipeline initialized successfully")
 
     def create(self, prompt: str, params: Dict[str, Any] = None) -> PipelineResult:
@@ -126,26 +175,8 @@ class CreativePipeline:
             # If image_path is None but we have metadata, we need to download from blob store
             if image_path is None and image_metadata_path:
                 try:
-                    # Import the blob viewer downloader directly
-                    tools_dir = str(Path(__file__).parent.parent / "tools")
-                    sys.path.append(tools_dir)
-
-                    try:
-                        # Try direct import first
-                        from tools.blob_viewer import (
-                            download_resource,
-                            construct_resource_url,
-                        )
-                    except ImportError:
-                        # If that fails, use importlib with proper error handling
-                        blob_viewer_path = os.path.join(tools_dir, "blob_viewer.py")
-                        spec = importlib.util.spec_from_file_location(
-                            "blob_viewer", blob_viewer_path
-                        )
-                        blob_viewer = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(blob_viewer)
-                        download_resource = blob_viewer.download_resource
-                        construct_resource_url = blob_viewer.construct_resource_url
+                    # Import the blob viewer module
+                    from app.tools.blob_viewer import construct_resource_url
 
                     # Read metadata to get blob ID and other info
                     with open(image_metadata_path, "r") as f:
@@ -184,7 +215,7 @@ class CreativePipeline:
                         with open(image_metadata_path, "w") as f:
                             json.dump(metadata, f, indent=2)
 
-                        # Call the download function with our custom path
+                        # Download the image
                         url = construct_resource_url(data_blob_id, execution_id)
                         response = requests.get(url)
 
