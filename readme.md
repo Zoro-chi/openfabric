@@ -2,7 +2,7 @@
 
 AI Creative is an end-to-end pipeline for generating 3D models from text prompts, leveraging cutting-edge AI technologies including text-to-image generation and image-to-3D model transformation.
 
-![AI Creative Studio](<Public/Screenshot 2025-04-18 at 15.03.59.png>)
+<img width="1470" alt="AI Creative Studio" src="https://github.com/user-attachments/assets/7db5ac5c-f707-433b-864f-5b165021de9a" />
 
 ## Features
 
@@ -26,11 +26,11 @@ AI Creative is an end-to-end pipeline for generating 3D models from text prompts
 
 - The LLM used is the `meta-llama/Llama-3.2-3B-Instruct` model, which is a lightweight version of the Llama-3.2 model. It is designed to run on consumer-grade hardware with 8GB of RAM. The model is capable of enhancing text prompts for better image generation results.
 
-- This is a gated model, you would need your huggingface token to access it. You can request access to the model [here](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct).
+- This is a gated model; you would need your huggingface token to access it. You can request access to the model [here](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct).
 
-- The model is downloaded using the `download_model.sh` script, which uses the `huggingface-cli` to authenticate and download the model files. Make sure to set your Hugging Face token in the `.env` file before running the script.
+- The model is downloaded using the `download_model.sh` script, which uses the `huggingface-cli` to authenticate and download the model files. Set your Hugging Face token in the `.env` file before running the script.
 
-- If you dont want to add your huggingface token, the application will fallback to using non gated models.
+- If you don't want to add your Huggingface token, the application will fall back to using non-gated models.
 
 ```
     fallback_models = [
@@ -44,7 +44,7 @@ AI Creative is an end-to-end pipeline for generating 3D models from text prompts
 
 You can try out a hosted version of AI Creative at [AI Creative Studio](https://huggingface.co/spaces/Zoro-chi/ai-creative-studio). This demo allows you to test the application without needing to set it up locally.
 
-**Note**: The hosted version has limitations and isnt as fast as the local version. For best performance, we recommend running the application locally. This is due to the restrictments from using the free tier of huggingface spaces. The local LLM being used here is a less powerful `TinyLlama-1.1B-Chat` model.
+**Note**: The hosted version has limitations and isn't as fast as the local version. For best performance, we recommend running the application locally. This is due to the restrictions from using the free tier of Huggingface Spaces. The local LLM being used here is a less powerful `TinyLlama-1.1B-Chat` model.
 
 ## Installation
 
@@ -117,17 +117,23 @@ This will launch the web interface, accessible at [http://localhost:7860](http:/
    - The generated image
    - The 3D model viewer with the created model
    - Download links for both image and 3D model
+  
 
-![Generation](<Public/Screenshot 2025-04-18 at 14.52.03.png>)
-Here's a screenshot of the application in action, showing the input prompt, generated image and the expanded prompt. The total time taken for the generation process is also displayed.
 
-![Model Generation](<Public/Screenshot 2025-04-18 at 14.53.14.png>)
+<img width="1470" alt="Image Generation" src="https://github.com/user-attachments/assets/8c06ef61-9db9-4980-b710-fb603dc3a24d" />
+
+Here's a screenshot of the application in action, showing the input prompt, generated image, and the expanded prompt. The total time taken for the generation process is also displayed.
+
+<img width="1470" alt="Model Viewer" src="https://github.com/user-attachments/assets/ffb402a7-5229-412c-b648-161c5323077b" />
+
 _Model Viewer_
 
-![Image Gallery](<Public/Screenshot 2025-04-18 at 14.58.11.png>)
+<img width="1470" alt="Image Gallery" src="https://github.com/user-attachments/assets/c891a12d-fea6-4237-b743-7820506e10e0" />
+
 _Image Gallery_
 
-![Model Gallery](<Public/Screenshot 2025-04-18 at 14.59.16.png>)
+<img width="1470" alt="Model Gallery" src="https://github.com/user-attachments/assets/dccaf466-096e-4e17-b9ae-656e5c08be8b" />
+
 _Model Gallery_
 
 ## Memory Implementation
@@ -214,7 +220,7 @@ AI Creative maintains detailed logs in the following locations:
 
 ### Common Issues
 
-- **LLM Service not starting**: Ensure you have sufficient RAM for the model and check the model download was completed successfully
+- **LLM Service not starting**: Ensure you have sufficient RAM for the model, and check that the model download was completed successfully
 - **Connection errors**: Verify your internet connection and check that your Openfabric app IDs are correct
-- **Generation timeout**: Image or 3D model generation may take time depending on complexity and service load
+- **Generation timeout**: Image or 3D model generation may take time, depending on complexity and service load
 - **"No module found" errors**: Ensure all dependencies are installed and you're using the correct Python environment
