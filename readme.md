@@ -44,7 +44,7 @@ AI Creative is an end-to-end pipeline for generating 3D models from text prompts
 
 You can try out a hosted version of AI Creative at [AI Creative Studio](https://huggingface.co/spaces/Zoro-chi/ai-creative-studio). This demo allows you to test the application without needing to set it up locally.
 
-**Note**: The hosted version has limitations and isn't as fast as the local version. For best performance, we recommend running the application locally. This is due to the restrictions from using the free tier of Huggingface Spaces. The local LLM being used here is a less powerful `TinyLlama-1.1B-Chat` model.
+**Note**: The hosted version has limitations and isn't as fast as the local version. For best performance, we recommend running the application locally. This is due to the restrictions from using the free tier of Huggingface Spaces. The local LLM being used here is a less powerful `TinyLlama-1.1B-Chat` model. The total average generation time from text-3D model is **2 Minutes**, while on local its **<1 Minute**
 
 ## Installation
 
