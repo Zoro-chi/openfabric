@@ -175,8 +175,21 @@ class CreativePipeline:
             # If image_path is None but we have metadata, we need to download from blob store
             if image_path is None and image_metadata_path:
                 try:
-                    # Import the blob viewer module
-                    from app.tools.blob_viewer import construct_resource_url
+                    # Import the blob viewer module using a direct path approach
+                    tools_dir = str(Path(__file__).parent.parent / "tools")
+                    sys.path.append(tools_dir)
+
+                    try:
+                        from tools.blob_viewer import construct_resource_url
+                    except ImportError:
+                        # Fall back to the importlib approach if direct import fails
+                        blob_viewer_path = os.path.join(tools_dir, "blob_viewer.py")
+                        spec = importlib.util.spec_from_file_location(
+                            "blob_viewer", blob_viewer_path
+                        )
+                        blob_viewer = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(blob_viewer)
+                        construct_resource_url = blob_viewer.construct_resource_url
 
                     # Read metadata to get blob ID and other info
                     with open(image_metadata_path, "r") as f:

@@ -142,11 +142,13 @@ class ImageTo3DGenerator:
                     )
                     # Get the most recent job's request ID
                     return sorted_jobs[0].get("rid")
-            
-            logger.warning("Could not find request ID in queue - job tracking may be unreliable")
+
+            logger.warning(
+                "Could not find request ID in queue - job tracking may be unreliable"
+            )
         except Exception as e:
             logger.warning(f"Failed to get request ID from queue: {e}")
-        
+
         return None
 
     def _poll_for_completion(self, rid: str) -> Tuple[str, Dict[str, Any]]:
