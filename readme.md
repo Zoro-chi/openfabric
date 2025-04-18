@@ -51,7 +51,7 @@ You can try out a hosted version of AI Creative at [AI Creative Studio](https://
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Zoro-chi/ai-creative.git
+[git clone https://github.com/Zoro-chi/ai-creative.git](https://github.com/Zoro-chi/openfabric.git)
 cd ai-creative
 ```
 
